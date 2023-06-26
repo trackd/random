@@ -8,7 +8,7 @@
     https://api.srrdb.com/v1/docs
     .LINK
     https://www.srrdb.com/help
-    .PARAMETER SearchIMDB
+    .PARAMETER imdbNumber
     Search with imdb number, returns releases.
     .PARAMETER GetIMDB
     Search with release, returns imdb info.
@@ -16,6 +16,8 @@
     return information about a single release
     .PARAMETER NFO
     list nfo files and download link for specified release
+    .PARAMETER ShowNFO
+    only works with NFO param, will output the NFO to screen.
     .PARAMETER Search
     Search
     .PARAMETER Feed
@@ -35,29 +37,32 @@
     .PARAMETER DisableFilters
     disables default filters if set.
     .EXAMPLE
-    # Below will grab feed and exclude anything matching German or French, and add anything matching 2160p or bluray (both not required)
     Get-SRRdb -Feed -Exclude 'German|French' -Include '2160p|Bluray'
+    # Below will grab feed and exclude anything matching German or French, and add anything matching 2160p or bluray (both not required)
     .EXAMPLE
-    # Searches for all releases for Avatar, uses imdb ID.
     Get-SRRdb -imdbNumber 1630029
+    # Searches for all releases for Avatar, uses imdb ID.
     .EXAMPLE
-    # Will get imdb Title, rating, votes for release.
     Get-SRRdb -GetIMDB releasename
+    # Will get imdb Title, rating, votes for release.
     .EXAMPLE
-    # nfo will check if SRR has a copy of the NFO and show you the link to the file.
     Get-SRRdb -NFO releasename
+    # nfo will check if SRR has a copy of the NFO and show you the link to the file.
     .EXAMPLE
-    # Get Details for a release, will show all files related to it.
+    Get-SRRDb -NFO -ShowNFO releasename
+    # Same as with NFO but will output the NFO to screen as well.
+    .EXAMPLE
     Get-SRRdb -Details releasename
+    # Get Details for a release, will show all files related to it.
     .EXAMPLE
-    # Titles from api
     Get-SRRdb -Titles
+    # Titles from api
     .EXAMPLE
-    # Raw api output, useful for debug, works on all params.
     Get-SRRdb -Feed -raw
+    # Raw api output, useful for debug, works on all params.
     .EXAMPLE
-    # Search
     Get-SRRdb -Search 'Harry Potter And The Deathly Hallows'
+    # Search
     .EXAMPLE
     Get-SRRDb -GetIMDB (Get-SRRdb -imdbNumber 1630029)[0].release
     .Notes
@@ -70,21 +75,21 @@
     #>
     [CmdletBinding(DefaultParameterSetName = 'Feed')]
     param (
-        [Parameter(ParameterSetName = 'Search', Mandatory = $true, HelpMessage = 'Search', Position = 0)]
+        [Parameter(ParameterSetName = 'Search', Mandatory, HelpMessage = 'Search', Position = 0)]
         [String]
         $Search,
-        [Parameter(ParameterSetName = 'imdbNumber', Mandatory = $true, ValueFromPipelineByPropertyName, HelpMessage = 'Search for releases matching imdb number')]
+        [Parameter(ParameterSetName = 'ByIMDB', Mandatory, ValueFromPipelineByPropertyName, HelpMessage = 'Search for releases matching imdb number')]
         [Alias('imdb')]
         [String]
         $imdbNumber,
-        [Parameter(ParameterSetName = 'GetIMDB', Mandatory = $true, ValueFromPipelineByPropertyName, HelpMessage = 'Search with a release, returns imdb info')]
+        [Parameter(ParameterSetName = 'ByRelease', Mandatory, ValueFromPipelineByPropertyName, HelpMessage = 'Search with a release, returns imdb info')]
         [Alias('BaseName')]
         [String]
         $GetIMDB,
-        [Parameter(ParameterSetName = 'Details', Mandatory = $true, HelpMessage = 'return information about a single release')]
+        [Parameter(ParameterSetName = 'Details', Mandatory, HelpMessage = 'return information about a single release')]
         [String]
         $Details,
-        [Parameter(ParameterSetName = 'NFO', Mandatory = $true, HelpMessage = 'list nfo files and download link for specified release')]
+        [Parameter(ParameterSetName = 'NFO', Mandatory, HelpMessage = 'list nfo files and download link for specified release')]
         [String]
         $NFO,
         [Parameter(ParameterSetName = 'NFO', HelpMessage = 'Show NFO')]
@@ -112,19 +117,17 @@
         [Parameter(ParameterSetName = 'Feed', HelpMessage = 'Disable filters if using PSDefaultParameterValues')]
         [Switch]
         $DisableFilters,
-        [Parameter(ParameterSetName = 'Titles', Mandatory = $true, HelpMessage = 'Title feed')]
+        [Parameter(ParameterSetName = 'Titles', Mandatory, HelpMessage = 'Title feed')]
         [Switch]
         $Titles,
-        [Parameter(HelpMessage = 'Raw api output')]
+        [Parameter(DontShow)]
         [Switch]
         $Raw
     )
     begin {
         Write-Verbose "Module: $($ExecutionContext.SessionState.Module.Name) Command: $($MyInvocation.MyCommand.Name) ParameterSetName: $($PSCmdlet.ParameterSetName) Param: $($PSBoundParameters.GetEnumerator())"
         if (-Not $feed -And $PSCmdlet.ParameterSetName -eq 'Feed') {
-            # TODO: why is this needed, sholdn't the default parameterset set a [Switch] param to $true?
-            Write-Verbose "Command: $($MyInvocation.MyCommand.Name), ParameterSetName is default but `$feed is not provided."
-            #to default to feed api if no input is given.
+            #default to feed api if no input is given.
             $feed = $true
         }
         if ($DisableFilters) {
@@ -140,7 +143,7 @@
             $query = $search
         } elseif ($imdbNumber) {
             $url = "$baseUrl/v1/search/imdb:"
-            $query = $SearchIMDB
+            $query = $imdbNumber
         } elseif ($GetIMDB) {
             $url = "$baseUrl/v1/imdb/"
             $query = $GetIMDB
@@ -156,13 +159,9 @@
             $url = 'https://www.srrdb.com/feed/titles'
         }
         try {
-            # Write-Verbose "Command: $($MyInvocation.MyCommand.Name), API url: $url"
-            #this can technically come from both -Search and -SearchImdb as Searchimdb is just a shortcut.
-            #if (($url -match 'imdb:') -or ($query -match 'imdb')) {
             if ($url -match 'imdb:') {
-                #fix imdb number to match format required by api (only numbers)
                 # TODO: cleanup just match the numbers instead.
-                $imdbquery = $query -replace 'https://www.imdb.com/title/tt|https://imdb.com/title/tt|tt|imdb://tt|\/' -replace ' ','/'
+                $imdbquery = $query -replace 'https://www.imdb.com/title/|https://imdb.com/title/|imdb.com/title/' -replace ' ','/'
                 $request = $url + $imdbquery
             } elseif ($Titles -Or $feed) {
                 #no query to append
@@ -227,9 +226,10 @@
                             $NFODownload = try { Invoke-RestMethod -Uri $($object.nfolink) } catch { 'error downloading file' }
                             $NFOitem | Add-Member -MemberType NoteProperty -Name 'NFO' -Value "$($NFODownload)"
                         }
-                        #TODO: fix so it outputs as a list because values are too wide for console.
+                        #TODO: remove format-list & fix so it outputs as a list because values are too wide for console.
                         $NFOitem | Format-List
-                    } elseif ($SearchIMDB -or $Search) {
+                    } elseif ($imdbNumber -or $Search) {
+                        # category:x264 ? / category:tv
                         Write-Verbose "Command: $($MyInvocation.MyCommand.Name), Search: $($object.query) Results: $($object.resultsCount)"
                         $TvRegex = '(?<Title>^.*?)\.(?:(?<Year>(19|20)\d{2})\.)?S(?<Season>\d{2})E(?<Episode>\d{2}).*?(?:\.(?<Update>REPACK\.PROPER|PROPER\.REPACK|REAL\.PROPER|REAL|PROPER|REPACK))?\.(?<Quality>\d{3,4}p).*?\.(?<Source>WEB\-DL|WEBRip|WEB|Bluray|HDTV)\.(?<Codec>x264|x265|h264|h265)\-(?<Group>.*$)'
                         # needs more work on the MovieRegex..
@@ -266,6 +266,14 @@
                             #     }
                             else {
                                 [PsCustomObject]@{
+                                    # Title   = ''
+                                    # Year    = ''
+                                    # Season  = ''
+                                    # Episode = ''
+                                    # Update  = ''
+                                    # Quality = ''
+                                    # Codec   = ''
+                                    # Group   = ''
                                     release = $item.release
                                     date    = $item.Date
                                     NFO     = $item.hasNFO
@@ -293,7 +301,7 @@
                         }
                     } elseif ($Details) {
                         Write-Verbose "Command: $($MyInvocation.MyCommand.Name), Details: $($object.Name)"
-                        Write-Verbose "Command: $($MyInvocation.MyCommand.Name), unpacked crc info: $($object.'archived-files')"
+                        # Write-Verbose "Command: $($MyInvocation.MyCommand.Name), unpacked crc info: $($object.'archived-files')"
                         foreach ($item in $object.files) {
                             [PsCustomObject]@{
                                 Name = $item.name
@@ -328,13 +336,8 @@ function Search-SRRdb {
     Search-SRRdb -imdb 0289830
     $PSDefaultParameterValues['Search-SRRdb:Include'] = 'x264|x265|h264|h265|bluray|1080p|720p|2160p'
 	$PSDefaultParameterValues['Search-SRRdb:Exclude'] = 'German|Norwegian|XXX|Danish|French|Italian|\-DDC'
-    .Notes
-    old
-    $builtinParam = 'ErrorAction','WarningAction','Verbose','ErrorVariable','WarningVariable','OutVariable','OutBuffer','Debug','InformationAction','InformationVariable','PipelineVariable','Exclude','Include'
     #>
-    [CmdletBinding()]
     param(
-        [Parameter(Position = 0)]
         [String]
         $Search,
         [String]
@@ -376,7 +379,7 @@ function Search-SRRdb {
         [string]
         $country,
         [string]
-        $archive_crc,
+        ${archive-crc},
         [string]
         $isdbhash,
         # [ArgumentCompletions('yes','no')]
@@ -401,22 +404,23 @@ function Search-SRRdb {
         [ValidateSet('date-asc','date-dsc')]
         [string]
         $order,
-        [string]
+        [String]
         $Include,
-        [string]
+        [String]
         $Exclude
     )
     Write-Verbose "Module: $($ExecutionContext.SessionState.Module.Name) Command: $($MyInvocation.MyCommand.Name) Param: $($PSBoundParameters.GetEnumerator())"
     if ($MyInvocation.BoundParameters.count -eq 0) { return 'need something to search for' }
     # Ignore the Default parameters (-Verbose, -Debug etc.) and our -Exclude -Include from querybuilder.
-    # might not be super safe to use internal, could change.. will keep an eye on it.
     [string[]]$IgnoredParams = @(
-        [System.Management.Automation.Internal.CommonParameters].DeclaredProperties.name
+        # no longer need below as I'm not using cmdletbindiing() or parameter()
+        # [System.Management.Automation.Internal.CommonParameters].DeclaredProperties.name
         'Exclude'
         'Include'
     )
     $query = [System.Text.StringBuilder]::new()
     # diff with $MyInvocation.BoundParameters.keys ?
+    # try with foreach @PSBoundParameters
     foreach ($key in $PSBoundParameters.Keys) {
         if ($key -notin $IgnoredParams) {
             if ($key -eq 'Search') {
@@ -449,39 +453,45 @@ function Get-SRRSearchAlternative {
     .SYNOPSIS
     helper function for getting alternative releases.
     combines search for getting an imdb # from $alternative (release name) and looking up alternative releases
-    todo: should try and match or upgrade quaility
-    ie 1080p should sort 1080p/2160p and exclude 720p.
-    .EXAMPLE
-    Get-SRRSearchAlternative releasename
     #>
-    [CmdletBinding()]
-    [Alias('SRRAlt')]
     param(
-        [parameter(Position = 0)]
         [string]
         $Alternative
     )
     Write-Verbose "Command: $($MyInvocation.MyCommand.Name) Param: $($PSBoundParameters.GetEnumerator())"
     $source = Get-SRRdb -GetIMDB $Alternative
-    Search-SRR -imdbNumber $source.imdb
+    Search-SRR -imdb $source.imdb
 }
-
-
 Function Get-SRRTvToday {
     <#
-    just an example helper function.
+    sugar
     #>
-    [CmdletBinding()]
-    param()
-    Search-SRRdb -foreign no -category Tv -date (Get-Date -Format 'yyyy-MM-dd') -Exclude '(19|20)\d{2}\.\d{2}\.\d{2}|German|Norwegian|XXX|Danish|French|Italian|\-DDC|SUBBED|DUBBED' -Include '1080p|720p' | Sort-Object -Property date
+    Search-SRRdb -foreign no -category Tv -date (Get-Date -Format 'yyyy-MM-dd') -Exclude '(19|20)\d{2}\.\d{2}\.\d{2}|German|Norwegian|XXX|Danish|French|Italian|\-DDC|\(|\)' -Include '1080p|720p' | Sort-Object -Property date
 }
 Function Get-SRRMoviesToday {
     <#
-    just an example helper function.
-    try and keep to the builtin search filters, limit -exclude/-include.
-    will get better results then.
+    sugar
     #>
-    [CmdletBinding()]
-    param()
-    Search-SRRdb -Search 1080p -foreign no -category x264 -date (Get-Date -Format 'yyyy-MM-dd') -Exclude '(19|20)\d{2}\.\d{2}\.\d{2}|German|Norwegian|XXX|Danish|French|Italian|\-DDC|SUBBED|DUBBED' | Sort-Object -Property date
+    Search-SRRdb -Search 1080p -foreign no -category x264 -date (Get-Date -Format 'yyyy-MM-dd') -Exclude '(19|20)\d{2}\.\d{2}\.\d{2}|German|Norwegian|XXX|Danish|French|Italian|\-DDC|\-CBFM$|HDTV|\(|\)' | Sort-Object -Property date
+}
+Function Get-SRRTvAutomation {
+    <#
+    sugar for automation
+    #>
+    Write-Verbose "Command: $($MyInvocation.MyCommand.Name) Param: $($PSBoundParameters.GetEnumerator())"
+    $TvShows = Search-SRRdb -foreign no -category Tv -date (Get-Date -Format 'yyyy-MM-dd') -Exclude '(19|20)\d{2}\.\d{2}\.\d{2}|German|Norwegian|XXX|Danish|French|Italian|\-DDC|\(|\)'
+    $object = foreach ($rls in $TvShows) {
+        $show = $rls.title -replace ' ','.'
+        [PsCustomObject]@{
+            Title   = $rls.Title
+            TvShow  = $show
+            Season  = $rls.Season
+            Episode = $rls.Episode
+            Search  = "$show S$($rls.Season)E$($rls.Episode)"
+            #release = $item.release
+            Date    = $rls.Date
+            Source  = 'SRRDb'
+        }
+    }
+    $object | Sort-Object -Property Search -Unique
 }
